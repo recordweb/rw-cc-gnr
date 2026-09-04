@@ -1,28 +1,28 @@
 # rw-cc-gnr — RecordWeb Global Namespace Registry Chaincode
 
-Hyperledger Fabric Chaincode für die **RecordWeb Global Namespace Registry** (RW-GNR).
-Läuft auf dem Fabric-Channel `rw-gnr` (Produktion) bzw. `rw-gnr-test` (Testnetz),
-betrieben im Netzwerk-Repo [`recordweb/rw-rrn`](https://github.com/recordweb/rw-rrn).
+Hyperledger Fabric chaincode for the **RecordWeb Global Namespace Registry** (RW-GNR).
+Runs on the Fabric channel `rw-gnr` (production) resp. `rw-gnr-test` (testnet),
+operated in the network repository [`recordweb/rw-rrn`](https://github.com/recordweb/rw-rrn).
 
-## Zweck und Grenzen
+## Purpose and Boundaries
 
-Der Chaincode implementiert die Namespace-Registry gemäss RWP-Konzept, Kapitel 12.2,
-und den normativen Anforderungen aus:
+The chaincode implements the namespace registry as specified in the RWP
+concept, chapter 12.2, and the normative requirements from:
 
-- RWC [#17](https://github.com/recordweb/rwc/issues/17) — Governance/Betriebsanforderungen
-- RWP [#23](https://github.com/recordweb/rwp/issues/23) — `did:rwp`-Syntax, canonical UUIDv4
-- RWP [#24](https://github.com/recordweb/rwp/issues/24) — Globales Namespace-Resolution-Modell
-- RWP [#25](https://github.com/recordweb/rwp/issues/25) — Hyperledger Fabric Profil
+- RWC [#17](https://github.com/recordweb/rwc/issues/17) — governance/operating requirements
+- RWP [#23](https://github.com/recordweb/rwp/issues/23) — `did:rwp` syntax, canonical UUIDv4
+- RWP [#24](https://github.com/recordweb/rwp/issues/24) — global namespace-resolution model
+- RWP [#25](https://github.com/recordweb/rwp/issues/25) — Hyperledger Fabric profile
 
-**Was die Registry speichert:** ausschliesslich Routing-Metadaten
+**What the registry stores:** routing metadata only
 (`namespace`, `resolverEndpoint`, `registeredBy`, `registeredAt`, `txId`,
 plus `updatedAt`, `endorsedBy`, `schemaVersion`).
 
-**Was die Registry NICHT speichert (RWP #25):** DID-Dokumente, Records,
-Record-Inhalte, Access-Control-Entscheidungen. Diese Grenze ist bewusst
-und darf durch künftige Erweiterungen nicht aufgeweicht werden.
+**What the registry does NOT store (RWP #25):** DID documents, Records,
+Record content, or access-control decisions. This boundary is deliberate
+and must not be weakened by future extensions of this chaincode.
 
-## Datenstruktur
+## Data Structure
 
 ```json
 {
@@ -38,119 +38,118 @@ und darf durch künftige Erweiterungen nicht aufgeweicht werden.
 }
 ```
 
-`namespace` muss ein **kanonischer, kleingeschriebener UUIDv4** sein (RWP #23).
-`resolverEndpoint` muss eine absolute **HTTPS**-URL sein.
+`namespace` must be a **canonical, lowercase UUIDv4** (RWP #23).
+`resolverEndpoint` must be an absolute **HTTPS** URL.
 
-## Öffentliche Transaktionsfunktionen
+## Public Transaction Functions
 
-| Funktion | Typ | Beschreibung |
+| Function | Type | Description |
 |---|---|---|
-| `RegisterNamespace(namespace, resolverEndpoint)` | Submit | Registriert einen neuen Namespace. `registeredBy` wird aus der authentifizierten Client-Identität abgeleitet, nicht aus einem Argument. |
-| `UpdateResolverEndpoint(namespace, newResolverEndpoint)` | Submit | Aktualisiert den Resolver-Endpoint. Nur die ursprünglich registrierende Organisation darf dies tun. |
-| `ResolveNamespace(namespace)` | Evaluate | Liefert den vollständigen Record für einen Namespace. Öffentlich lesbar für alle Channel-Teilnehmer. |
-| `GetMyNamespaces()` | Evaluate | Liefert alle Namespaces, die von der aufrufenden Organisation registriert wurden. Kein Parameter — die Identität kommt ausschliesslich aus dem Client-Kontext. |
-| `GetNamespaceHistory(namespace)` | Evaluate | Liefert die vollständige, unveränderliche Änderungshistorie eines Namespace. |
+| `RegisterNamespace(namespace, resolverEndpoint)` | Submit | Registers a new namespace. `registeredBy` is derived from the authenticated client identity, never from an argument. |
+| `UpdateResolverEndpoint(namespace, newResolverEndpoint)` | Submit | Updates the resolver endpoint. Only the organisation that originally registered the namespace may do this. |
+| `ResolveNamespace(namespace)` | Evaluate | Returns the full record for a namespace. Publicly readable by all channel members. |
+| `GetMyNamespaces()` | Evaluate | Returns all namespaces registered by the calling organisation. No parameter — the identity comes exclusively from the client context. |
+| `GetNamespaceHistory(namespace)` | Evaluate | Returns the full, immutable modification history of a namespace. |
 
-**Bewusst nicht enthalten:** Ein `GetAllNamespaces` über die gesamte Registry
-wurde verworfen (Skalierungsrisiko bei unbeschränktem Full-Scan, kein
-Bestandteil der normativen Mindest-API). Ein Admin-/Audit-Bedürfnis über
-alle Organisationen hinweg sollte extern gelöst werden (z. B. Block-/
-State-Listener, der eine Kopie in eine externe DB spiegelt), nicht durch
-eine Chaincode-Funktion, die für Reporting-Workloads nicht vorgesehen ist.
+**Deliberately not included:** A `GetAllNamespaces` function across the
+entire registry was dropped (scalability risk from an unbounded full scan,
+and not part of the normative minimum API). An admin/audit need spanning
+all organisations should be solved externally (e.g. a block/state listener
+mirroring a copy into an external database), not through a chaincode
+function that isn't designed for reporting workloads.
 
-## Identität und Autorisierung
+## Identity and Authorisation
 
-Die Registrar-Identität wird **immer** aus `ctx.GetClientIdentity().GetMSPID()`
-abgeleitet, niemals aus einem Transaktionsargument (RWP #25, Kommentar).
-Ein Client kann sich also nicht als andere Organisation ausgeben, auch nicht
-versehentlich durch einen falschen Parameter.
+The registrar identity is **always** derived from
+`ctx.GetClientIdentity().GetMSPID()`, never from a transaction argument
+(RWP #25, comment). A client can therefore never impersonate another
+organisation, not even by accident through a wrong parameter.
 
-`UpdateResolverEndpoint` prüft, dass die aufrufende MSP-ID mit `registeredBy`
-des existierenden Records übereinstimmt. Ein Update durch eine andere
-Organisation schlägt mit `UNAUTHORIZED_REGISTRAR` fehl.
+`UpdateResolverEndpoint` checks that the calling MSP ID matches
+`registeredBy` on the existing record. An update attempted by a different
+organisation fails with `UNAUTHORIZED_REGISTRAR`.
 
-Die eigentliche Durchsetzung von Mehrorganisations-Konsens erfolgt über die
-**Channel-Endorsement-Policy** (ausserhalb dieses Chaincodes, siehe
-`rw-rrn`-Repo), nicht durch Logik im Chaincode selbst.
+Actual multi-organisation consensus enforcement happens through the
+**channel endorsement policy** (outside this chaincode, see the `rw-rrn`
+repository), not through logic inside this chaincode.
 
-## Fehlerbehandlung
+## Error Handling
 
-Alle Fehler sind vom Typ `ContractError` mit einem stabilen `ErrorCode`
-(siehe `errors.go`), z. B. `INVALID_NAMESPACE_FORMAT`, `NAMESPACE_ALREADY_EXISTS`,
-`UNAUTHORIZED_REGISTRAR`, `LEDGER_READ_FAILED`. Aufrufende Clients (Admin-GUI,
-Resolver-Dienste) können anhand des Codes programmatisch reagieren, statt
-Freitext-Fehlermeldungen zu parsen.
+All errors are of type `ContractError` with a stable `ErrorCode` (see
+`errors.go`), e.g. `INVALID_NAMESPACE_FORMAT`, `NAMESPACE_ALREADY_EXISTS`,
+`UNAUTHORIZED_REGISTRAR`, `LEDGER_READ_FAILED`. Calling clients (admin GUI,
+resolver services) can react programmatically based on the code instead of
+parsing free-text error messages.
 
 ## Logging
 
-Strukturierte JSON-Logs nach stdout (`INFO`/`WARN`) bzw. stderr (`ERROR`),
-siehe `logging.go`. Jede Log-Zeile enthält Funktion, Transaktions-ID, MSP-ID
-und Namespace, sofern vorhanden. Peers leiten Chaincode-Container-stdout/stderr
-in ihre eigenen Logs weiter; das JSON-Format erlaubt späteres Einsammeln
-durch Log-Aggregatoren (Loki/ELK), ohne Freitext parsen zu müssen.
+Structured JSON logs to stdout (`INFO`/`WARN`) resp. stderr (`ERROR`), see
+`logging.go`. Every log line includes the function name, transaction ID,
+MSP ID, and namespace, where applicable. Peers forward chaincode container
+stdout/stderr into their own logs; the JSON format allows later ingestion
+by log aggregators (Loki/ELK) without having to parse free text.
 
 ## Events
 
-- `NamespaceRegistered` — bei jeder erfolgreichen `RegisterNamespace`-Transaktion.
-- `NamespaceUpdated` — bei jeder erfolgreichen `UpdateResolverEndpoint`-Transaktion.
+- `NamespaceRegistered` — emitted on every successful `RegisterNamespace` transaction.
+- `NamespaceUpdated` — emitted on every successful `UpdateResolverEndpoint` transaction.
 
-Beide Events tragen den vollständigen, serialisierten `NamespaceRecord` als Payload.
-Externe Konsumenten (z. B. ein Resolver-Cache) können sich darauf abonnieren,
-statt den Ledger zu pollen.
+Both events carry the full, serialized `NamespaceRecord` as payload.
+External consumers (e.g. a resolver cache) can subscribe to these instead
+of polling the ledger.
 
-## Determinismus
+## Determinism
 
-`RegisteredAt`/`UpdatedAt` werden aus `ctx.GetStub().GetTxTimestamp()` abgeleitet,
-**nicht** aus `time.Now()`. `time.Now()` liefert auf jedem endorsierenden Peer
-einen leicht unterschiedlichen Wert und würde zu einem Endorsement-Mismatch
-führen — ein bekanntes Antipattern in Fabric-Chaincode.
+`RegisteredAt`/`UpdatedAt` are derived from `ctx.GetStub().GetTxTimestamp()`,
+**not** from `time.Now()`. `time.Now()` returns a slightly different value
+on each endorsing peer and would cause an endorsement mismatch — a known
+anti-pattern in Fabric chaincode.
 
-## State-Database-Kompatibilität
+## State Database Compatibility
 
-Der Chaincode ist so geschrieben, dass er sowohl mit LevelDB als auch mit
-CouchDB als Peer-State-Database funktioniert (reine Key/Value- bzw.
-Key-Range-Zugriffe, kein CouchDB-spezifisches Rich-Query im aktuellen Stand).
-`GetMyNamespaces` filtert aktuell in-memory nach einem vollständigen
-Range-Scan; bei CouchDB als State-Database (siehe Migration im `rw-rrn`-Repo)
-kann dies künftig durch eine indizierte Mango-Query auf `registeredBy`
-ersetzt werden, was bei wachsender Registry-Grösse deutlich günstiger ist.
-Das `docType`-Feld ist bereits für einen künftigen CouchDB-Index vorgesehen.
+The chaincode is written to work with both LevelDB and CouchDB as the peer
+state database (plain key/key-range access only, no CouchDB-specific rich
+query in the current state). `GetMyNamespaces` currently filters in-memory
+after a full range scan; once the network migrates to CouchDB (see the
+`rw-rrn` repository), this can be replaced by an indexed Mango query on
+`registeredBy`, which is significantly cheaper as the registry grows. The
+`docType` field is already in place to support a future CouchDB index.
 
-## Entwicklung
+## Development
 
 ```bash
 go mod tidy
 
-# Mocks generieren (einmalig counterfeiter installieren)
+# Generate mocks (install counterfeiter once)
 go install github.com/maxbrunsfeld/counterfeiter/v6@latest
 go generate ./...
 
-# Tests ausführen
+# Run tests
 go test ./... -v
 
-# Build prüfen
+# Verify build
 go build ./...
 ```
 
-## Verzeichnisstruktur
+## Directory Structure
 
 ```
 rw-cc-gnr/
 ├── go.mod
-├── main.go                          # Chaincode-Server-Einstiegspunkt
+├── main.go                          # Chaincode server entry point
 ├── namespaceregistry/
-│   ├── contract.go                  # SmartContract-Struct + Package-Dokumentation
+│   ├── contract.go                  # SmartContract struct + package documentation
 │   ├── types.go                     # NamespaceRecord, HistoryEntry
-│   ├── errors.go                    # ContractError, ErrorCode-Konstanten
-│   ├── logging.go                   # Strukturiertes JSON-Logging
-│   ├── validation.go                # UUIDv4- und HTTPS-URL-Validierung
-│   ├── identity.go                  # Ableitung der Registrar-MSP-ID
-│   ├── time_util.go                 # Deterministische Zeitstempel-Formatierung
+│   ├── errors.go                    # ContractError, ErrorCode constants
+│   ├── logging.go                   # Structured JSON logging
+│   ├── validation.go                # UUIDv4 and HTTPS URL validation
+│   ├── identity.go                  # Registrar MSP ID derivation
+│   ├── time_util.go                 # Deterministic timestamp formatting
 │   ├── register.go                  # RegisterNamespace, UpdateResolverEndpoint
 │   ├── resolve.go                   # ResolveNamespace, GetMyNamespaces
 │   ├── history.go                   # GetNamespaceHistory
-│   ├── mocks_gen.go                 # go:generate-Direktiven für counterfeiter
-│   ├── mocks/                       # generierte Mocks (nach go generate)
+│   ├── mocks_gen.go                 # go:generate directives for counterfeiter
+│   ├── mocks/                       # generated mocks (after go generate)
 │   ├── register_test.go
 │   ├── resolve_test.go
 │   ├── history_test.go
@@ -158,21 +157,20 @@ rw-cc-gnr/
 └── README.md
 ```
 
-## Offene Punkte / bekannte Grenzen
+## Open Items / Known Limitations
 
-- **Pagination**: `GetMyNamespaces` ist für die aktuelle Registry-Grösse
-  (wenige hundert Namespaces) unproblematisch, aber nicht paginiert.
-  Sollte die Anzahl der Namespaces pro Organisation stark wachsen, ist eine
-  `GetMyNamespacesPaginated(pageSize, bookmark)`-Variante mit
-  `GetStateByRangeWithPagination` sinnvoll.
-- **CouchDB-Indizes**: Sobald das Netzwerk auf CouchDB migriert ist
-  (siehe `rw-rrn`), sollte ein `_design`-Dokument mit Index auf
-  `docType` + `registeredBy` ergänzt werden, um `GetMyNamespaces` von
-  einem Full-Scan auf eine indizierte Query umzustellen.
-- **Schema-Migration**: `schemaVersion` ist vorbereitet, aber es existiert
-  noch keine Migrationslogik für bestehende Records bei künftigen
-  Strukturänderungen.
-- **Integrationstests**: Diese Unit-Tests laufen gegen generierte Mocks,
-  nicht gegen ein echtes Fabric-Netzwerk. Ein Integrationstest gegen
-  `rw-gnr-test` (siehe `rw-rrn`-Repo) ist vor jedem Produktions-Deploy
-  weiterhin nötig.
+- **Pagination**: `GetMyNamespaces` is fine for the current registry size
+  (a few hundred namespaces) but is not paginated. If the number of
+  namespaces per organisation grows significantly, a
+  `GetMyNamespacesPaginated(pageSize, bookmark)` variant using
+  `GetStateByRangeWithPagination` would be advisable.
+- **CouchDB indexes**: Once the network has migrated to CouchDB (see
+  `rw-rrn`), a `_design` document indexing `docType` + `registeredBy`
+  should be added to move `GetMyNamespaces` from a full scan to an
+  indexed query.
+- **Schema migration**: `schemaVersion` is in place, but no migration
+  logic exists yet for existing records under future structural changes.
+- **Integration tests**: These unit tests run against generated mocks,
+  not against a real Fabric network. An integration test against
+  `rw-gnr-test` (see the `rw-rrn` repository) is still required before
+  every production deployment.
