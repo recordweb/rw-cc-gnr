@@ -38,15 +38,51 @@ and must not be weakened by future extensions of this chaincode.
 }
 ```
 
-`namespace` must be a **canonical, lowercase UUIDv4** (RWP #23).
-`resolverEndpoint` must be an absolute **HTTPS** URL.
+`namespace` is always a **canonical, lowercase UUIDv4**-formatted string
+(RWP #23). `resolverEndpoint` must be an absolute **HTTPS** URL.
+
+## Namespace Assignment Model
+
+**A namespace is never supplied by the caller.** `RegisterNamespace` takes
+only `resolverEndpoint` as input; the namespace value itself is derived
+deterministically inside the chaincode from the current transaction ID
+(SHA-256 hash of `GetTxID()`, reshaped into RFC 4122 UUIDv4 byte layout —
+see `namespace_id.go`).
+
+This is a deliberate design decision, not an oversight:
+
+- **A namespace may only ever be registered once and therefore have
+  exactly one `resolverEndpoint`.** This is the collision the derivation
+  scheme protects against: a caller-chosen namespace string carries no
+  uniqueness guarantee beyond the caller's own care, whereas a
+  transaction-ID-derived value is guaranteed unique as long as at most one
+  namespace is derived per transaction.
+- **The same `resolverEndpoint` may be reused across many separate
+  `RegisterNamespace` calls, and this is intentional.** Each call yields
+  its own, newly derived, distinct namespace pointing at that endpoint.
+  It is up to the calling organisation to track which of its namespaces
+  is used for which purpose — the registry does not enforce or track that
+  intent.
+
+**Why not a "real" random UUIDv4 (`uuid.New()`)?** Chaincode must produce
+byte-identical results on every endorsing peer for a transaction to pass
+endorsement. True randomness would yield a different value on each peer
+and break endorsement comparison as soon as more than one organisation
+endorses — which is always the case on this network (multi-org
+endorsement policy, see `rw-rrn`). Fabric's transaction ID is itself a
+SHA-256 hash computed once by the submitting client and included in the
+transaction envelope, so it is identical across all endorsing peers.
+Hashing it again only reshapes it into the UUIDv4 byte layout; the
+resulting string is syntactically indistinguishable from a randomly
+generated UUIDv4, it simply is not drawn from a random source — an
+accepted, deliberate trade-off for chaincode determinism.
 
 ## Public Transaction Functions
 
 | Function | Type | Description |
 |---|---|---|
-| `RegisterNamespace(namespace, resolverEndpoint)` | Submit | Registers a new namespace. `registeredBy` is derived from the authenticated client identity, never from an argument. |
-| `UpdateResolverEndpoint(namespace, newResolverEndpoint)` | Submit | Updates the resolver endpoint. Only the organisation that originally registered the namespace may do this. |
+| `RegisterNamespace(resolverEndpoint)` | Submit | Registers a new namespace for the given endpoint and returns the full resulting record (including the newly derived `namespace`). Neither `namespace` nor `registeredBy` is a caller-supplied argument. |
+| `UpdateResolverEndpoint(namespace, newResolverEndpoint)` | Submit | Updates the resolver endpoint of an existing namespace. Only the organisation that originally registered the namespace may do this. |
 | `ResolveNamespace(namespace)` | Evaluate | Returns the full record for a namespace. Publicly readable by all channel members. |
 | `GetMyNamespaces()` | Evaluate | Returns all namespaces registered by the calling organisation. No parameter — the identity comes exclusively from the client context. |
 | `GetNamespaceHistory(namespace)` | Evaluate | Returns the full, immutable modification history of a namespace. |
@@ -96,14 +132,19 @@ by log aggregators (Loki/ELK) without having to parse free text.
 
 Both events carry the full, serialized `NamespaceRecord` as payload.
 External consumers (e.g. a resolver cache) can subscribe to these instead
-of polling the ledger.
+of polling the ledger. This is particularly relevant for
+`RegisterNamespace`, since the caller no longer chooses the namespace up
+front — the event (and the direct return value) are the two ways to learn
+which namespace was assigned.
 
 ## Determinism
 
 `RegisteredAt`/`UpdatedAt` are derived from `ctx.GetStub().GetTxTimestamp()`,
 **not** from `time.Now()`. `time.Now()` returns a slightly different value
 on each endorsing peer and would cause an endorsement mismatch — a known
-anti-pattern in Fabric chaincode.
+anti-pattern in Fabric chaincode. The same determinism requirement is why
+the namespace itself is derived from `GetTxID()` rather than generated
+with a random UUID library (see "Namespace Assignment Model" above).
 
 ## State Database Compatibility
 
@@ -144,6 +185,7 @@ rw-cc-gnr/
 │   ├── logging.go                   # Structured JSON logging
 │   ├── validation.go                # UUIDv4 and HTTPS URL validation
 │   ├── identity.go                  # Registrar MSP ID derivation
+│   ├── namespace_id.go              # Deterministic namespace derivation from TxID
 │   ├── time_util.go                 # Deterministic timestamp formatting
 │   ├── register.go                  # RegisterNamespace, UpdateResolverEndpoint
 │   ├── resolve.go                   # ResolveNamespace, GetMyNamespaces
@@ -153,6 +195,7 @@ rw-cc-gnr/
 │   ├── register_test.go
 │   ├── resolve_test.go
 │   ├── history_test.go
+│   ├── namespace_id_test.go
 │   └── validation_test.go
 └── README.md
 ```
@@ -174,3 +217,10 @@ rw-cc-gnr/
   not against a real Fabric network. An integration test against
   `rw-gnr-test` (see the `rw-rrn` repository) is still required before
   every production deployment.
+- **Namespace derivation and RWP #23**: the derived namespace is
+  syntactically a canonical UUIDv4 (RFC 4122 version 4, variant 10) but is
+  not drawn from a random source — it is deterministically derived from
+  the transaction ID for chaincode-determinism reasons (see "Namespace
+  Assignment Model"). If RWP #23 is ever clarified to require genuine
+  entropy rather than UUIDv4 *syntax*, this derivation scheme would need
+  to be revisited.
