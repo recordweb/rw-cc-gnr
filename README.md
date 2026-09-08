@@ -224,4 +224,3 @@ rw-cc-gnr/
   Assignment Model"). If RWP #23 is ever clarified to require genuine
   entropy rather than UUIDv4 *syntax*, this derivation scheme would need
   to be revisited.
-
