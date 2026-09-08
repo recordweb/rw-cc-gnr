@@ -179,7 +179,6 @@ tar cfz <CC_NAME>.tar.gz metadata.json code.tar.gz
 
 peer lifecycle chaincode package <CC_NAME>.tar.gz \
   --path . \
-  --lang node \
   --label <CC_LABEL>
 
 echo "PACKAGE EXIT CODE: $?"
