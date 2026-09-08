@@ -1,0 +1,61 @@
+name: Deploy rw-cc-gnr chaincode image to VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Which CCaaS container to rebuild and restart'
+        required: true
+        default: 'ccaas-gnr-test'
+        type: choice
+        options:
+          - ccaas-gnr-test
+          - ccaas-gnr
+          - none
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -euo pipefail
+
+            # ── 1. Pull latest chaincode source ─────────────────────────
+            cd /opt/rw-cc-gnr
+            git -c http.version=HTTP/1.1 fetch origin
+            git reset --hard origin/main
+
+            # ── 2. Build the chaincode image only ───────────────────────
+            # This repo has no docker-compose.yml of its own — the CCaaS
+            # container itself is defined in the network repo (rw-rrn).
+            # We only build the image here, tagged so rw-rrn's
+            # docker-compose.yml can reference it by a stable name.
+            docker build -t rw-cc-gnr:1.0 .
+
+            # ── 3. Restart the corresponding CCaaS container in rw-rrn ──
+            # Deliberately restart-only, not a chaincode lifecycle step:
+            # install/approve/commit remain manual, console-driven actions
+            # (same principle as the CA-bootstrap scripts in rw-rrn's
+            # Config-and-Progress.md — automate the repeatable rebuild,
+            # never the governance-sensitive lifecycle transitions).
+            CHANNEL_INPUT="${{ github.event.inputs.channel }}"
+            TARGET_SERVICE="${CHANNEL_INPUT:-ccaas-gnr-test}"
+
+            if [ "$TARGET_SERVICE" = "none" ]; then
+              echo "Image rebuilt; skipping container restart as requested."
+            else
+              cd /opt/rw-rrn
+              docker compose up -d --no-deps "$TARGET_SERVICE"
+              docker compose logs "$TARGET_SERVICE" --tail=30
+            fi
+
+            docker compose ps
