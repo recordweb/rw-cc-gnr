@@ -9,11 +9,11 @@ on:
       channel:
         description: 'Which CCaaS container to rebuild and restart'
         required: true
-        default: 'ccaas-gnr-test'
+        default: 'ccaas-rw-cc-gnr-test'
         type: choice
         options:
-          - ccaas-gnr-test
-          - ccaas-gnr
+          - ccaas-rw-cc-gnr-test
+          - ccaas-rw-cc-gnr
           - none
 
 jobs:
