@@ -1,4 +1,9 @@
-FROM golang:1.21 AS build
+# Using a newer Go toolchain than go.mod's "go 1.21" minimum on purpose:
+# counterfeiter (used below to generate test mocks) requires Go >= 1.22
+# (v6.11.2+) or even >= 1.25 (latest v6.12.x). go.mod's "go 1.21" is a
+# minimum-compatibility declaration, not a pin — building with a newer
+# toolchain is safe and does not change the module's declared minimum.
+FROM golang:1.23 AS build
 WORKDIR /chaincode
 
 # All source is copied BEFORE running `go mod tidy`. Running `go mod tidy`
@@ -10,12 +15,11 @@ COPY . .
 # namespaceregistry/mocks/ is intentionally NOT committed to this repo yet
 # — it is generated code (counterfeiter fakes of the Fabric interfaces),
 # and is generated here, in the one environment in this whole pipeline that
-# actually has real internet access and permission to install a Go tool
-# (neither the VPS shell user nor the sandbox that authored these files
-# has both). Without this step, `go mod tidy` below tries to resolve
-# ".../namespaceregistry/mocks" as if it were a real external module and
-# fails with "no matching versions for query \"latest\"".
-RUN go install github.com/maxbrunsfeld/counterfeiter/v6@latest
+# actually has real internet access and permission to install a Go tool.
+# Pinned to v6.11.2 explicitly (not @latest): v6.12.x requires Go >= 1.25,
+# and pinning avoids silently picking up a future version with a new,
+# higher minimum-Go requirement again.
+RUN go install github.com/maxbrunsfeld/counterfeiter/v6@v6.11.2
 RUN go mod tidy
 RUN go generate ./...
 
