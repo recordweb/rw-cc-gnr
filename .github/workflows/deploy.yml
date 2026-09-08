@@ -48,7 +48,7 @@ jobs:
             # Config-and-Progress.md — automate the repeatable rebuild,
             # never the governance-sensitive lifecycle transitions).
             CHANNEL_INPUT="${{ github.event.inputs.channel }}"
-            TARGET_SERVICE="${CHANNEL_INPUT:-ccaas-gnr-test}"
+            TARGET_SERVICE="${CHANNEL_INPUT:-ccaas-rw-cc-gnr-test}"
 
             if [ "$TARGET_SERVICE" = "none" ]; then
               echo "Image rebuilt; skipping container restart as requested."
